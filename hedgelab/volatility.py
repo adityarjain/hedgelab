@@ -19,9 +19,9 @@ MODELS = ["garch", "har", "linlog", "mlp"]
 # ---------- data ----------
 def make_frame(ohlc):
     """ohlc: DataFrame with open/high/low/close. Returns the feature frame (see module docstring)."""
-    o, h, l, c = (ohlc[k] for k in ("open", "high", "low", "close"))
+    o, h, lo, c = (ohlc[k] for k in ("open", "high", "low", "close"))
     r = 100 * np.log(c).diff()
-    rv = 1e4 * (0.5 * np.log(h / l) ** 2 - (2 * np.log(2) - 1) * np.log(c / o) ** 2)
+    rv = 1e4 * (0.5 * np.log(h / lo) ** 2 - (2 * np.log(2) - 1) * np.log(c / o) ** 2)
     return features(r, rv.clip(lower=1e-4))
 
 
@@ -112,7 +112,8 @@ def walk_forward(f, first=1000, step=63, seeds=3, mlp_iter=300):
         # same features as the MLP but linear: isolates what nonlinearity adds
         out.loc[te.index, "linlog"] = _fit_log_model(Ridge(alpha=1.0), tr, te)
         out.loc[te.index, "mlp"] = np.mean(
-            [_fit_log_model(MLPRegressor(hidden_layer_sizes=(16, 8), alpha=1e-2, max_iter=mlp_iter, random_state=k), tr, te)
+            [_fit_log_model(MLPRegressor(hidden_layer_sizes=(16, 8), alpha=1e-2, max_iter=mlp_iter, random_state=k),
+                            tr, te)
              for k in range(seeds)], axis=0)
     return out
 

@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from hedgelab.hedging import Hedger, cvar, delta_hedge, leland_hedge, pnl, report, simulate, train
@@ -36,6 +37,7 @@ def test_hedger_does_not_look_ahead():
         assert torch.equal(m(S)[:, : t + 1], m(S2)[:, : t + 1])
 
 
+@pytest.mark.slow
 def test_short_training_beats_delta_under_costs():
     cost, S = 0.005, simulate(50_000, seed=5)
     model = train(cost, iters=200, batch=4096)

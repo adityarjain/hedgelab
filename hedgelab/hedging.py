@@ -65,7 +65,8 @@ class Hedger(nn.Module):
 
     def __init__(self, width=32):
         super().__init__()
-        self.net = nn.Sequential(nn.Linear(3, width), nn.ReLU(), nn.Linear(width, width), nn.ReLU(), nn.Linear(width, 1))
+        self.net = nn.Sequential(nn.Linear(3, width), nn.ReLU(),
+                                 nn.Linear(width, width), nn.ReLU(), nn.Linear(width, 1))
 
     def forward(self, S):
         n, steps = S.shape[0], S.shape[1] - 1

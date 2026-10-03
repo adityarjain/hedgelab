@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from hedgelab.hedging import K, SIGMA, STEPS, T, delta_hedge, leland_hedge, pnl, report, simulate, train
+from hedgelab.hedging import SIGMA, STEPS, K, T, delta_hedge, leland_hedge, pnl, report, simulate, train
 from hedgelab.pricing import bs_greeks
 
 COSTS = [0.0, 0.001, 0.005]

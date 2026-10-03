@@ -10,11 +10,19 @@ requires-python = ">=3.10"
 dependencies = ["numpy", "pandas", "scipy", "scikit-learn", "torch", "yfinance", "matplotlib"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]
 
 [tool.setuptools]
 packages = ["hedgelab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: trains a model or runs a long simulation (CI skips: pytest -m 'not slow')"]
 filterwarnings = ["ignore::sklearn.exceptions.ConvergenceWarning"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["data", "results"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]  # pycodestyle, pyflakes, import order, bugbear, pyupgrade

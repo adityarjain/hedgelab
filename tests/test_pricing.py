@@ -1,8 +1,15 @@
 import numpy as np
 import pytest
 
-from hedgelab.pricing import (binomial_price, bs_greeks, bs_price, geometric_asian_price,
-                           implied_vol, mc_asian, mc_european)
+from hedgelab.pricing import (
+    binomial_price,
+    bs_greeks,
+    bs_price,
+    geometric_asian_price,
+    implied_vol,
+    mc_asian,
+    mc_european,
+)
 
 A = dict(S=100, K=105, T=0.75, r=0.04, sigma=0.25, q=0.01)
 
