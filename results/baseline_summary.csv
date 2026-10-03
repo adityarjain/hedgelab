@@ -1,0 +1,4 @@
+strategy,trades,mean_per_100,mean_lo,mean_hi,annual_per_100,sharpe,sharpe_lo,sharpe_hi,nw_se,std,worst,win_rate,worst_month_share_of_total,vrp_share,residual_share,stock_cost_share
+delta-hedged (2bp stock cost),252,0.697027,0.520073,0.894375,8.36433,1.81527,1.24412,2.63214,0.0916927,1.33015,-6.07193,0.793651,-0.0345682,1.08532,0.0169685,0.102288
+delta-hedged (no costs),252,0.763029,0.586608,0.95853,9.15634,1.99271,1.39701,2.85445,0.0914055,1.32644,-6.01123,0.805556,-0.0312624,,,
+unhedged,252,0.880203,0.561745,1.18256,10.5624,1.22606,0.712144,1.86945,0.156026,2.48692,-12.7232,0.730159,-0.0573604,,,

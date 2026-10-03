@@ -26,6 +26,12 @@ CI (`.github/workflows/ci.yml`) runs ruff and the fast suite with CPU-only torch
 - `volatility.py`: GARCH/HAR/linear-log/MLP walk-forward forecasts, units in % and %². Currently a next-day target; M4 retargets it to 30-day realized variance.
 - `hedging.py`: simulated-world deep hedging (GBM, CVaR loss) with BS-delta and Leland baselines. Module constants (`S0, K, SIGMA, T, STEPS`) define the toy setup, and `PREMIUM` is computed from them once at import. Mutating the constants at runtime won't reprice the option, so pass explicit parameters when reusing this for real-data hedging (M2/M4).
 
+- `trades.py`: the research engine. `run_all(df)` sells a straddle on the first session of each month and hedges at each close. Its P&L uses an independent cash account, and `vrp`/`residual` decompose it exactly (`total = vrp + residual - stock_cost - entry_cost`). Time is calendar days/365, matching VIX; r and q are frozen at entry. `run_trade` also returns `holdings` (dropped by `run_all`), which the hedge-lookahead test needs.
+- `stats.py`: stationary block bootstrap (`mean_ci`, `sharpe_ci`, `paired_diff`) and `newey_west_se`. Use these, not naive SEs; monthly P&L is fat-tailed and clustered.
+- `run.py`: `python -m hedgelab.run baseline` regenerates `results/baseline_*` (CSVs + `baseline_pnl.png`). Chart colours are the validated dataviz palette slots defined at its top.
+
+Lookahead in `trades.py` needs two tests, because a leak can live inside a single trade: `test_no_lookahead` (scramble after k; settled trades unchanged and entry pricing of every trade entered by k unchanged) and `test_hedge_uses_only_past_prices`.
+
 ## Units (differ by module, so convert at the boundary)
 
 - `data`: VIX family in **vol points** (20 = 20%); `rate` as a decimal, continuously compounded.

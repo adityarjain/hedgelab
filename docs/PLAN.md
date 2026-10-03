@@ -96,7 +96,9 @@ Delivered: `hedgelab/data.py` (5,534 validated days), `results/data_coverage.csv
 - Tooling: `ruff` lint; GitHub Actions running fast tests on every push (slow ones marked `@pytest.mark.slow`); `CLAUDE.md`.
 - **Done when:** `hedgelab.data.load()` returns a validated frame from 2004-2025, there's a coverage table for every ticker, and CI is green.
 
-### M2: Options trade engine plus the first real result (1 week)
+### M2: Options trade engine plus the first real result (1 week) *(done)*
+Delivered: `trades.py`, `stats.py`, `run.py baseline`, results in `results/baseline_*`. Hedged: 0.70 per $100/month (CI 0.52-0.89), Sharpe 1.82 (CI 1.24-2.63); VRP term = 109% of P&L. Trades start 2005 so the trailing dividend yield has a year of history. Deferred to M4: daily mark-to-market at that day's VIX (drawdowns use per-trade P&L for now). Lookahead tests were strengthened after an injected within-trade leak slipped past the first version.
+
 - New `hedgelab/trades.py`: monthly short straddle, daily hedge, costs, settlement; per-trade P&L with its decomposition; daily mark-to-market for drawdowns. It reuses `bs_price` and `bs_greeks` from `hedgelab/pricing.py`.
 - New `hedgelab/stats.py`: block bootstrap, Newey-West, paired tests.
 - Tests:
