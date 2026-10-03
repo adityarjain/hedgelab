@@ -30,6 +30,9 @@ CI (`.github/workflows/ci.yml`) runs ruff and the fast suite with CPU-only torch
 - `stats.py`: stationary block bootstrap (`mean_ci`, `sharpe_ci`, `paired_diff`) and `newey_west_se`. Use these, not naive SEs; monthly P&L is fat-tailed and clustered.
 - `run.py`: `python -m hedgelab.run baseline` regenerates `results/baseline_*` (CSVs + `baseline_pnl.png`). Chart colours are the validated dataviz palette slots defined at its top.
 
+- `heston.py`: `price` integrates on a grid whose length scales with 1/sqrt(vT). Don't replace it with a fixed grid: short-dated options (9-14 days) need it, and `test_fourier_grid_matches_adaptive_quadrature` guards it. `simulate` is Andersen QE and returns `(S, v)` paths for M4's deep hedge. Chain calibration needs per-expiry forwards from `implied_carry` (put-call parity), not the trailing dividend yield; quotes carry a `q` column that `market_quotes`/`fit_chain` use. `data.option_chain_snapshot()` is one cached day (`data/SPY_chain_<asof>.csv`) and keeps both sides near the money (`otm=False`) only for that parity step.
+- pandas gotcha: `snap.asof` is a DataFrame method, so use `snap["asof"]`.
+
 Lookahead in `trades.py` needs two tests, because a leak can live inside a single trade: `test_no_lookahead` (scramble after k; settled trades unchanged and entry pricing of every trade entered by k unchanged) and `test_hedge_uses_only_past_prices`.
 
 ## Units (differ by module, so convert at the boundary)

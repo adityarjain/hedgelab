@@ -121,6 +121,51 @@ def coverage(df):
     return pd.DataFrame(rows).T
 
 
+def option_chain_snapshot(min_days=14, max_days=200, moneyness=(0.85, 1.10), strike_step=5.0, parity_band=0.03,
+                          refresh=False):
+    """Latest SPY option chain: out-of-the-money quotes with a live two-sided market, plus the spot, VIX,
+    3-month rate and trailing dividend yield at the same close. Free data has no option history, so this is
+    one day only. The newest cached snapshot (data/SPY_chain_<asof>.csv) is reused unless refresh=True.
+
+    Columns: asof, expiry, T (calendar years), K, call, otm, bid, ask, mid, spot, vix, rate, div_yield.
+    Both calls and puts are kept within `parity_band` of spot (otm=False rows), so each expiry's forward can
+    be implied from put-call parity; elsewhere only the out-of-the-money side is kept.
+    """
+    cached = sorted(CACHE.glob("SPY_chain_*.csv"))
+    if cached and not refresh:
+        return pd.read_csv(cached[-1], parse_dates=["asof", "expiry"])
+    import yfinance as yf
+
+    spy = yf.Ticker("SPY")
+    hist = spy.history(period="1y")
+    spot, asof = float(hist.Close.iloc[-1]), hist.index[-1].tz_localize(None).normalize()
+    vix = float(yf.Ticker("^VIX").history(period="5d").Close.iloc[-1])
+    rate = float(irx_to_rate(yf.Ticker("^IRX").history(period="5d").Close.iloc[-1]))
+    div_yield = float(hist.Dividends.sum() / spot)
+    rows = []
+    for expiry in spy.options:
+        days = (pd.Timestamp(expiry) - asof).days
+        if not min_days <= days <= max_days:
+            continue
+        chain = spy.option_chain(expiry)
+        for frame, call in ((chain.calls, True), (chain.puts, False)):
+            K = frame.strike
+            otm = (K >= spot) if call else (K < spot)
+            near = (K - spot).abs() <= parity_band * spot
+            keep = ((frame.bid > 0) & (frame.ask > frame.bid) & (otm | near)
+                    & K.between(moneyness[0] * spot, moneyness[1] * spot) & (K % strike_step == 0))
+            for k, o, bid, ask in zip(K[keep], otm[keep], frame.bid[keep], frame.ask[keep], strict=True):
+                rows.append({"asof": asof, "expiry": pd.Timestamp(expiry), "T": days / 365, "K": float(k),
+                             "call": call, "otm": bool(o), "bid": bid, "ask": ask, "mid": (bid + ask) / 2,
+                             "spot": spot, "vix": vix, "rate": rate, "div_yield": div_yield})
+    if not rows:
+        raise RuntimeError("no usable SPY option quotes (market closed with empty books?)")
+    snap = pd.DataFrame(rows)
+    CACHE.mkdir(exist_ok=True)
+    snap.to_csv(CACHE / f"SPY_chain_{asof.date()}.csv", index=False)
+    return snap
+
+
 def load(start=START, end=END, refresh=False):
     """Validated daily frame of SPY, its dividends, the VIX family and the risk-free rate."""
     raw = {t: fetch(t, start, end, refresh) for t in ["SPY", *INDEXES]}

@@ -2,9 +2,10 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
-from hedgelab import data, stats, trades
+from hedgelab import data, heston, stats, trades
 
 RESULTS = Path(__file__).resolve().parent.parent / "results"
 PERIODS = {"2008-09 financial crisis": ("2008-09-01", "2009-06-30"), "2020 Covid crash": ("2020-02-01", "2020-06-30"),
@@ -106,5 +107,88 @@ def plot(runs, path):
     fig.savefig(path, dpi=150, facecolor=fig.get_facecolor())
 
 
+TENORS = {"vix9d": 9, "vix": 30, "vix3m": 93, "vix6m": 183}  # calendar days
+
+
+def heston_results():
+    # 1) VIX term structure -> kappa, theta, daily v (risk-neutral); 2) history -> rho, xi (physical)
+    df = data.load()
+    lv = df[list(TENORS)].dropna()
+    ts = heston.fit_term_structure(lv.to_numpy(), np.array(list(TENORS.values())) / 365)
+    days = (lv.index - lv.index[0]).days.to_numpy()
+    rho, xi = heston.fit_rho_xi(df.close.loc[lv.index].to_numpy(), ts["v"], days)
+    ts_rows = {"start": lv.index[0].date(), "end": lv.index[-1].date(), "days": len(lv), "kappa": ts["kappa"],
+               "theta": ts["theta"], "long_run_vol": np.sqrt(ts["theta"]), "rho": rho, "xi": xi,
+               **{f"rmse_vol_points_{k}": e for k, e in zip(TENORS, ts["rmse_vol_points"], strict=True)}}
+    pd.Series(ts_rows).rename("value").to_csv(RESULTS / "heston_timeseries.csv", index_label="parameter")
+
+    # 3) one live option chain -> all five parameters
+    snap = data.option_chain_snapshot()
+    S, r, q, vix = (float(snap[c].iloc[0]) for c in ["spot", "rate", "div_yield", "vix"])
+    carry = heston.implied_carry(snap, S, r)  # per-expiry forward from put-call parity, not trailing dividends
+    snap["q"] = snap["T"].map(carry).fillna(q)
+    quotes = heston.market_quotes(snap.loc[snap.otm, ["K", "T", "mid", "call", "expiry", "q"]], S, r, q)
+    params, rmse = heston.fit_chain(quotes, S, r, q)
+    quotes["model_iv"] = np.nan
+    for T, g in quotes.groupby("T"):  # assign by index: groupby order is not the row order
+        quotes.loc[g.index, "model_iv"] = heston.smile(S, g.K.to_numpy(), T, r, g.q.iloc[0], params,
+                                                       g.call.to_numpy())
+    by_exp = []
+    for (expiry, T), g in quotes.groupby(["expiry", "T"]):
+        g = g.sort_values("K")
+        by_exp.append({"expiry": pd.Timestamp(expiry).date(), "T": T, "quotes": len(g), "implied_q": g.q.iloc[0],
+                       "rmse_vol_points": np.sqrt(np.mean((g.model_iv - g.iv) ** 2)) * 100,
+                       "atm_iv_market": np.interp(S, g.K, g.iv), "atm_iv_model": np.interp(S, g.K, g.model_iv)})
+    by_exp = pd.DataFrame(by_exp)
+    by_exp.to_csv(RESULTS / "heston_chain_by_expiry.csv", index=False, float_format="%.6g")
+    # 30-day ATM implied vol: interpolate total variance iv^2 T across expiries, compare with VIX
+    t30 = 30 / 365
+    iv30 = np.sqrt(np.interp(t30, by_exp["T"], by_exp.atm_iv_market**2 * by_exp["T"]) / t30)
+    v0, kappa, theta, xi_q, rho_q = params
+    chain_row = {"asof": pd.Timestamp(snap["asof"].iloc[0]).date(), "spot": S, "rate": r,
+                 "trailing_div_yield": q, "implied_q_min": min(carry.values()), "implied_q_max": max(carry.values()),
+                 "quotes": len(quotes), "v0": v0, "kappa": kappa, "theta": theta, "xi": xi_q, "rho": rho_q,
+                 "rmse_vol_points": rmse, "feller_2kt_minus_xi2": 2 * kappa * theta - xi_q**2,
+                 "vix": vix, "atm_iv_30d": iv30, "atm_iv_30d_over_vix": iv30 / (vix / 100)}
+    pd.Series(chain_row).rename("value").to_csv(RESULTS / "heston_chain_fit.csv", index_label="parameter")
+
+    plot_smiles(quotes, S, RESULTS / "heston_smile.png", rmse)
+    print(pd.Series(ts_rows).to_string())
+    print(pd.Series(chain_row).to_string())
+    print(by_exp.round(4).to_string(index=False))
+
+
+def plot_smiles(quotes, S, path, rmse):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    exps = quotes.groupby("expiry")["T"].first().sort_values()
+    picks = [exps.index[np.argmin(np.abs(exps.to_numpy() - d / 365))] for d in (20, 45, 90, 180)]
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6.5), sharey=True, facecolor="#fcfcfb")
+    for ax, expiry in zip(axes.flat, dict.fromkeys(picks), strict=False):
+        g = quotes[quotes.expiry == expiry].sort_values("K")
+        ax.set_facecolor("#fcfcfb")
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.spines[["left", "bottom"]].set_color(GRID)
+        ax.tick_params(colors=MUTED, labelsize=9)
+        ax.grid(color=GRID, lw=0.8)
+        ax.set_axisbelow(True)
+        ax.plot(g.K / S, g.model_iv * 100, color=ORANGE, lw=2, label="Heston fit", zorder=2)
+        ax.scatter(g.K / S, g.iv * 100, s=18, color=BLUE, edgecolor="#fcfcfb", lw=0.8, label="market (mid)", zorder=3)
+        ax.set_title(f"{pd.Timestamp(expiry).date()} ({round(g['T'].iloc[0] * 365)} days)", loc="left",
+                     color=INK, fontsize=10)
+    for ax in axes[1]:
+        ax.set_xlabel("strike / spot", color=MUTED, fontsize=9)
+    for ax in axes[:, 0]:
+        ax.set_ylabel("implied vol (%)", color=MUTED, fontsize=9)
+    axes[0, 0].legend(frameon=False, fontsize=9)
+    fig.suptitle(f"SPY implied-vol smile vs one Heston fit across all expiries (RMSE {rmse:.2f} vol pts)",
+                 x=0.01, ha="left", color=INK, fontsize=12)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, facecolor=fig.get_facecolor())
+
+
 if __name__ == "__main__":
-    {"baseline": baseline}[sys.argv[1] if len(sys.argv) > 1 else "baseline"]()
+    {"baseline": baseline, "heston": heston_results}[sys.argv[1] if len(sys.argv) > 1 else "baseline"]()

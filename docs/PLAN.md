@@ -109,7 +109,9 @@ Delivered: `trades.py`, `stats.py`, `run.py baseline`, results in `results/basel
   - put-call parity on the legs.
 - **First result:** short straddle with a BS-delta hedge from 2004 to 2025. It gives annualized return, Sharpe, worst month, the VRP share of P&L, and a P&L chart with crises marked.
 
-### M3: Heston model (1 week)
+### M3: Heston model (1 week) *(done)*
+Delivered: `heston.py`, `data.option_chain_snapshot()`, `run.py heston`, results in `results/heston_*`. Term-structure fit (2011-2025): κ 4.2, θ 0.058, ρ −0.69, ξ 1.67, RMSE 1.0-2.7 vol pts by tenor. Chain fit (2026-10-02): RMSE 0.61 vol pts. Added beyond plan: per-expiry forwards from put-call parity (removed a ~1 vol-pt put/call jump). Finding for M5: 30d ATM IV / VIX = 0.84 on the snapshot date, so the VIX-scaling sweep now starts at 0.80.
+
 - New `hedgelab/heston.py`:
   - semi-closed-form price via the characteristic function, using the stable "little trap" form;
   - Monte Carlo with Andersen's QE scheme;
@@ -130,7 +132,7 @@ Delivered: `trades.py`, `stats.py`, `run.py baseline`, results in `results/basel
 - **Result:** the strategy comparison table with paired confidence intervals, overall and by sub-period.
 
 ### M5: Robustness (3-4 days)
-- Implied-vol proxy scaling: VIX × {0.85, 0.9, 0.95, 1.0}.
+- Implied-vol proxy scaling: VIX × {0.80, 0.85, 0.9, 0.95, 1.0} (M3 measured 0.84 on one day).
 - Costs: stock {0, 2, 5, 10} bp per side, and option entry {0, 1, 3}% of premium.
 - Rebalancing every 1, 2 or 5 days, or by band.
 - Maturity: 9, 30 and 93 days.

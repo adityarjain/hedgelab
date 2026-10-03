@@ -2,7 +2,7 @@
 
 Research project: **if you sell 30-day SPY options and hedge them daily, how much do you make or lose, and do better volatility forecasts or a learned hedge improve it after trading costs?**
 
-**Status:** M2 of 6 done (first real result below). Full roadmap: [docs/PLAN.md](docs/PLAN.md).
+**Status:** M3 of 6 done (baseline result and Heston model below). Full roadmap: [docs/PLAN.md](docs/PLAN.md).
 
 ## First result: the baseline trade
 
@@ -26,7 +26,29 @@ Intervals are stationary block-bootstrap intervals (blocks of consecutive months
 - VIX is a variance-swap level and runs above at-the-money implied vol because of the volatility skew, so pricing the straddle at VIX overstates the premium collected.
 - There is no option bid-ask cost yet.
 
-M5 tests both. Until then, treat a Sharpe near 1.8 with all 21 years positive as too good to take at face value. Data: [results/baseline_summary.csv](results/baseline_summary.csv), [baseline_periods.csv](results/baseline_periods.csv), [baseline_trades.csv](results/baseline_trades.csv); reproduce with `python -m hedgelab.run baseline`.
+M5 tests both. Until then, treat a Sharpe near 1.8 with all 21 years positive as too good to take at face value. The Heston work below measures the first caveat directly: on one recent day, VIX overstated 30-day at-the-money vol by 16%. Data: [results/baseline_summary.csv](results/baseline_summary.csv), [baseline_periods.csv](results/baseline_periods.csv), [baseline_trades.csv](results/baseline_trades.csv); reproduce with `python -m hedgelab.run baseline`.
+
+## Heston stochastic volatility
+
+Black-Scholes assumes one constant vol. Heston lets variance itself move randomly, mean-revert, and correlate with the stock, which produces the volatility skew seen in real option prices. M4 hedges in this world.
+
+**Correctness.**
+- The Fourier pricer matches an independent adaptive-quadrature integration to 10⁻⁴ for maturities from 9 days to 1 year, including short-dated options, where naive Fourier grids fail.
+- It reduces to Black-Scholes when vol-of-vol → 0 (agreement to 10⁻⁸).
+- It agrees with Andersen-QE Monte Carlo within 3 standard errors.
+- Both calibrations recover known parameters from synthetic data.
+
+**Calibration 1: 15 years of the VIX term structure** (VIX9D/VIX/VIX3M/VIX6M, 2011–2025, 3,771 days). The fit gives mean reversion κ = 4.2, long-run vol 24.1%, and from the return/variance history, correlation ρ = −0.69 and vol-of-vol ξ = 1.67. **A one-factor model can't fit the whole curve:** errors are 1.0 vol point at 30 days but 2.4 at 9 days and 2.7 at 6 months. One mean-reversion speed is too rigid, which is the usual motivation for two-factor models.
+
+**Calibration 2: a live SPY option chain** (close of 2026-10-02, 499 out-of-the-money quotes across 13 expiries from 14 to 180 days). Each expiry's forward is backed out from put-call parity, not assumed from trailing dividends. That removed a ~1 vol-point jump where the quotes switch from puts to calls. One parameter set (v₀ = 10.7% vol, κ = 12.2, long-run 19.0%, ξ = 2.05, ρ = −0.60) fits every expiry to **0.61 vol points RMSE**. The fit is 0.2 vol points around 3–4 months and 1.6 at 14 days. Heston can't make the short-dated skew steep enough, the classic argument for adding jumps.
+
+![Heston smile fit](results/heston_smile.png)
+
+**What this says about the baseline.**
+- On this date, 30-day at-the-money implied vol was **12.9% vs VIX 15.3% (ratio 0.84)**. The M2 trade prices options at VIX, so it overstates the premium collected; M5 will re-run it at 0.80–1.0 × VIX.
+- The two calibrations disagree on mean reversion (12.2 from one day of options vs 4.2 from 15 years of VIX), and the chain fit violates the Feller condition. Both are common in practice: they're different measures (one day's risk-neutral surface vs a 15-year average), and Heston is too simple to be consistent across them.
+
+Data: [results/heston_timeseries.csv](results/heston_timeseries.csv), [heston_chain_fit.csv](results/heston_chain_fit.csv), [heston_chain_by_expiry.csv](results/heston_chain_by_expiry.csv); reproduce with `python -m hedgelab.run heston`. The chain is one snapshot cached locally: free data has no option history, so re-downloading on a new day gives a new fit.
 
 ## Data
 
@@ -39,6 +61,7 @@ M5 tests both. Until then, treat a Sharpe near 1.8 with all 21 years positive as
 | `hedgelab.data` | download, cache, align across timezones, validate |
 | `hedgelab.trades` | monthly short straddle, daily delta hedge, exact P&L decomposition (VRP term / residual / costs) |
 | `hedgelab.stats` | stationary block bootstrap, Newey-West, paired comparisons |
+| `hedgelab.heston` | Fourier pricer, QE Monte Carlo, calibration to the VIX term structure and to an option chain |
 | `hedgelab.run` | regenerates everything in `results/` |
 | `hedgelab.pricing` | Black-Scholes, Greeks, implied vol, binomial tree, Monte Carlo (European, Asian with control variate) |
 | `hedgelab.volatility` | GARCH / HAR-RV / linear-log / MLP forecasts, walk-forward, QLIKE, Diebold-Mariano |
