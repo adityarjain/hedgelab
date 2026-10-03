@@ -20,10 +20,17 @@ CI (`.github/workflows/ci.yml`) runs ruff and the fast suite with CPU-only torch
 
 ## Architecture
 
-- `hedgelab/data.py` is the only module that touches the network. `load()` = `fetch` (Yahoo, cached as CSV in `data/`, gitignored) → `align` (onto SPY trading days) → `validate` (raises listing every problem). Yahoo stamps SPY in New York time and the VIX family/^IRX in Chicago time, so `_download` normalises everything to tz-naive dates. Don't compare raw timestamps. Index gaps are forward-filled at most `MAX_FILL` days, and the counts go into `df.attrs["filled"]`. VIX9D starts 2011, VIX6M 2008, VIX3M mid-2006; they're NaN before launch by design, so don't fill or backfill them.
+- `hedgelab/data.py` is the only **package** module that touches the network. `examples/` are pre-merge prototype scripts: they download or simulate their own data (e.g. `volatility_walkforward.py` pulls dividend-adjusted SPY from 2000 via yfinance directly, unlike `data.load()`), take minutes, write PNGs to the working directory, and are not the source of any research result.
+- In `data.py`, `load()` = `fetch` (Yahoo, cached as CSV in `data/`, gitignored) → `align` (onto SPY trading days) → `validate` (raises listing every problem). Yahoo stamps SPY in New York time and the VIX family/^IRX in Chicago time, so `_download` normalises everything to tz-naive dates. Don't compare raw timestamps. Index gaps are forward-filled at most `MAX_FILL` days, and the counts go into `df.attrs["filled"]`. VIX9D starts 2011, VIX6M 2008, VIX3M mid-2006; they're NaN before launch by design, so don't fill or backfill them.
 - `pricing.py`: Black-Scholes/Greeks/binomial/Monte Carlo. Functions take `(S, K, T, r, sigma, q=0.0, call=True)` and are NumPy-vectorised (`hedging.py` passes 2-D `S` and 1-D `T`).
 - `volatility.py`: GARCH/HAR/linear-log/MLP walk-forward forecasts, units in % and %². Currently a next-day target; M4 retargets it to 30-day realized variance.
-- `hedging.py`: simulated-world deep hedging (GBM, CVaR loss) with BS-delta and Leland baselines. Module constants (`S0, K, SIGMA, T, STEPS`) define the toy setup; real-data hedging comes in M2/M4.
+- `hedging.py`: simulated-world deep hedging (GBM, CVaR loss) with BS-delta and Leland baselines. Module constants (`S0, K, SIGMA, T, STEPS`) define the toy setup, and `PREMIUM` is computed from them once at import. Mutating the constants at runtime won't reprice the option, so pass explicit parameters when reusing this for real-data hedging (M2/M4).
+
+## Units (differ by module, so convert at the boundary)
+
+- `data`: VIX family in **vol points** (20 = 20%); `rate` as a decimal, continuously compounded.
+- `pricing`, `hedging`: `sigma` and `r` as **decimals** (0.2), T in years. Use `vix / 100` before pricing.
+- `volatility`: returns in **percent**, variances in **%²** (daily). Annualised decimal vol = `sqrt(252 * var) / 100`.
 
 ## Rules this codebase holds itself to
 
