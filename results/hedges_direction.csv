@@ -1,0 +1,7 @@
+strategy,corr_with_spy_move,mean_diff_spy_up,mean_diff_spy_down,share_spy_up
+BS delta (forecast vol),0.168868,0.0114637,-0.0172583,0.643939
+Leland,0.0844975,-0.00116122,-0.00173247,0.643939
+Whalley-Wilmott band,-0.179504,-0.105798,0.17249,0.643939
+deep hedge (Heston-trained),-0.503775,-0.330264,0.371277,0.643939
+deep hedge (history-trained),-0.431178,-0.204025,0.918167,0.643939
+skew-adjusted delta (exploratory),-0.876872,-0.633518,0.749431,0.643939

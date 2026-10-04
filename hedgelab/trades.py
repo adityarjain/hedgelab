@@ -39,18 +39,28 @@ def straddle(S, K, tau, r, q, sigma):
     return value, c["delta"] + p["delta"], c["gamma"] + p["gamma"]
 
 
-def run_trade(days, S, div, sigma, r, q, cost=0.0, entry_cost=0.0, hedge=True):
+def run_trade(days, S, div, sigma, r, q, cost=0.0, entry_cost=0.0, hedge=True, vix=None, ctx=None):
     """One short straddle struck at S[0], settled at S[-1].
 
     days: calendar day numbers of the sessions (entry ... settle); S, div: closes and cash dividends on those
     sessions; cost: stock cost per side as a fraction of traded notional; entry_cost: fraction of premium.
+    hedge: True (Black-Scholes delta at the entry implied vol), False (no hedge), or a policy called at each
+    close t as policy(t=, S=S[:t+1], tau=, T=, prev=, K=, sigma=, r=, q=, vix=vix[:t+1], ctx=) -> shares.
+    The engine slices the histories, so a policy cannot see past close t. ctx: per-trade values known at entry.
     """
     days, S, div = np.asarray(days, float), np.asarray(S, float), np.asarray(div, float)
     n, K = len(S) - 1, S[0]
     tau = (days[-1] - days[:-1]) / 365
     dt = np.diff(days) / 365
     value, delta, gamma = straddle(S[:-1], K, tau, r, q, sigma)
-    h = delta if hedge else np.zeros(n)  # shares held after the close-t rebalance (short straddle -> +delta)
+    if callable(hedge):
+        vix = None if vix is None else np.asarray(vix, float)
+        h, prev = np.empty(n), 0.0
+        for t in range(n):
+            prev = h[t] = float(hedge(t=t, S=S[: t + 1], tau=tau[t], T=tau[0], prev=prev, K=K, sigma=sigma, r=r,
+                                      q=q, vix=None if vix is None else vix[: t + 1], ctx=ctx or {}))
+    else:
+        h = delta if hedge else np.zeros(n)  # shares held after the close-t rebalance (short straddle -> +delta)
 
     premium = value[0]
     cash, prev, stock_cost = premium * (1 - entry_cost), 0.0, 0.0
@@ -66,7 +76,7 @@ def run_trade(days, S, div, sigma, r, q, cost=0.0, entry_cost=0.0, hedge=True):
 
     ret = S[1:] / S[:-1] - 1
     vrp = 0.5 * gamma * S[:-1] ** 2 * (sigma**2 * dt - ret**2)
-    vrp_sum = vrp.sum() if hedge else np.nan
+    vrp_sum = vrp.sum() if hedge is True else np.nan  # the decomposition assumes the implied-vol delta hedge
     return {"premium": premium, "total": total, "vrp": vrp_sum,
             "residual": total - vrp_sum + stock_cost + premium * entry_cost,
             "stock_cost": stock_cost, "entry_cost": premium * entry_cost,
@@ -74,19 +84,28 @@ def run_trade(days, S, div, sigma, r, q, cost=0.0, entry_cost=0.0, hedge=True):
             "holdings": h}  # per-session hedge; dropped by run_all, used by the lookahead test
 
 
-def run_all(df, days=30, vix_scale=1.0, cost=2e-4, entry_cost=0.0, hedge=True, start="2005-01-01"):
-    """One trade per month. df: the data.load() frame. Returns one row per trade (TRADE_FIELDS)."""
+def run_all(df, days=30, vix_scale=1.0, cost=2e-4, entry_cost=0.0, hedge=True, start="2005-01-01", ctx=None,
+            vol_col="vix", entries="monthly"):
+    """One trade per month (entries="monthly") or one starting every session ("daily", overlapping).
+    df: the data.load() frame. Returns one row per trade (TRADE_FIELDS).
+    hedge: see run_trade. ctx: {name: Series indexed by date}; each trade's policy gets its entry-date values.
+    vol_col: the implied-vol index that prices the option (e.g. vix9d for 9-day, vix3m for 93-day trades);
+    trades whose entry has no value (before the index launched) are skipped."""
     q_all = dividend_yield(df)
     day_num = (df.index - df.index[0]).days.to_numpy()
+    starts = entry_dates(df.index, start) if entries == "monthly" else list(df.index[df.index >= start])
     rows = []
-    for t0 in entry_dates(df.index, start):
+    for t0 in starts:
         window = df.loc[t0 : t0 + pd.Timedelta(days=days)]
         if window.index[-1] - t0 < pd.Timedelta(days=days - 4):  # not enough history left to settle
             continue
         i0 = df.index.get_loc(t0)
+        if np.isnan(df[vol_col].iloc[i0]):
+            continue
         sl = slice(i0, i0 + len(window))
-        sigma = df.vix.iloc[i0] / 100 * vix_scale
+        sigma = df[vol_col].iloc[i0] / 100 * vix_scale
         res = run_trade(day_num[sl], df.close.iloc[sl], df.dividend.iloc[sl], sigma, df.rate.iloc[i0],
-                        q_all.iloc[i0], cost, entry_cost, hedge)
+                        q_all.iloc[i0], cost, entry_cost, hedge, vix=df.vix.iloc[sl].to_numpy(),
+                        ctx={k: s.loc[t0] for k, s in (ctx or {}).items()})
         rows.append({"entry": t0, "settle": window.index[-1], "S0": df.close.iloc[i0], "sigma": sigma, **res})
     return pd.DataFrame(rows, columns=TRADE_FIELDS)

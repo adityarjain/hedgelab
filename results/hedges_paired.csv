@@ -1,0 +1,22 @@
+strategy,metric,diff_vs_bs_delta,lo,hi,p
+no hedge,mean,0.0397129,-0.296564,0.372776,0.792
+no hedge,std,1.35002,0.890575,1.71367,0
+no hedge,cvar95,3.21465,1.25364,4.8058,0.0036
+BS delta (forecast vol),mean,0.0012369,-0.0314689,0.0332089,0.9292
+BS delta (forecast vol),std,0.0320247,-0.0252781,0.0908776,0.3968
+BS delta (forecast vol),cvar95,0.149591,-0.0936165,0.3802,0.2508
+Leland,mean,-0.00136462,-0.00413216,0.00134822,0.3348
+Leland,std,0.00457688,-2.6068e-05,0.00848243,0.052
+Leland,cvar95,0.0109725,-0.0166835,0.037859,0.4224
+Whalley-Wilmott band,mean,-0.00671042,-0.132727,0.118961,0.9236
+Whalley-Wilmott band,std,0.23872,0.106429,0.381356,0.0004
+Whalley-Wilmott band,cvar95,0.610656,-0.0868224,1.06275,0.0928
+deep hedge (Heston-trained),mean,-0.0804727,-0.185594,0.0227659,0.124
+deep hedge (Heston-trained),std,-0.0773701,-0.295084,0.0686899,0.3928
+deep hedge (Heston-trained),cvar95,-0.454878,-1.67196,0.487368,0.42
+deep hedge (history-trained),mean,0.195543,0.0187585,0.412672,0.0252
+deep hedge (history-trained),std,0.0369577,-0.20976,0.268449,0.756
+deep hedge (history-trained),cvar95,-0.63541,-2.2873,0.958453,0.3816
+skew-adjusted delta (exploratory),mean,-0.141104,-0.277045,-0.00249992,0.0468
+skew-adjusted delta (exploratory),std,-0.315465,-0.556853,-0.0704365,0.0076
+skew-adjusted delta (exploratory),cvar95,-1.07761,-2.60441,-0.0506883,0.038

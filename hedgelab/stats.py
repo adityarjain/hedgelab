@@ -47,6 +47,24 @@ def paired_diff(a, b, **kw):
     return est, lo, hi, float(p)
 
 
+def cvar(pnl, alpha=0.95):
+    """Expected shortfall of P&L along the last axis: mean of the worst (1 - alpha) share, as a positive loss."""
+    pnl = np.asarray(pnl, float)
+    k = max(1, int(np.ceil(round((1 - alpha) * pnl.shape[-1], 9))))
+    return -np.sort(pnl, axis=-1)[..., :k].mean(axis=-1)
+
+
+def paired_stat(a, b, stat, **kw):
+    """stat(a) - stat(b) on the same trades, resampled jointly: (diff, lo, hi, two-sided p for 'diff = 0').
+    stat must work along the last axis (e.g. lambda x: x.std(axis=-1, ddof=1), cvar)."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    idx = stationary_indices(len(a), **kw)
+    draws = stat(a[idx]) - stat(b[idx])
+    lo, hi = np.quantile(draws, [0.025, 0.975])
+    p = min(1.0, 2 * min((draws <= 0).mean(), (draws >= 0).mean()))
+    return float(stat(a) - stat(b)), float(lo), float(hi), float(p)
+
+
 def newey_west_se(x, lags=None):
     """HAC (Bartlett kernel) standard error of the mean."""
     x = np.asarray(x, float)

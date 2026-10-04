@@ -125,18 +125,23 @@ Delivered: `heston.py`, `data.option_chain_snapshot()`, `run.py heston`, results
   - put-call parity;
   - calibration recovers known parameters from a synthetic surface.
 
-### M4: Hedging strategies head-to-head (1 week)
+### M4: Hedging strategies head-to-head (1 week) *(done)*
+Delivered: `strategies.py`, `volatility.har_monthly`, `stats.cvar`/`paired_stat`, `run.py hedges`, results in `results/hedges_*`. Test period 2015-2025 (132 trades). No deep hedge beat BS delta reliably; the Whalley-Wilmott band significantly raised risk at 2 bp. Diagnosis showed both networks under-hedge (gain when SPY falls), i.e. a spot-vol effect. **Exploratory (post-hoc) addition:** skew-adjusted delta, BS delta + vega × β/S with β from 2005-2014. Std −0.32 (p 0.008), CVaR95 −1.08 (p 0.04), worst month −2.30 vs −6.07. M5 must stress-test it before it can be a headline. Still deferred: daily mark-to-market at VIX.
+
 - Strategies 1-6b behind one interface: `strategy(state up to t) -> holding`, so lookahead is impossible by construction.
 - The volatility forecaster (`hedgelab/volatility.py`, currently next-day) switches to predicting **30-day realized variance** to match the trade horizon, walk-forward as before.
 - Deep hedges extend `Hedger` / `train` in `hedgelab/hedging.py`: add the variance state as an input; 6a trains on calibrated Heston paths, 6b on bootstrapped training-year returns. Both are tested only on held-out real trades. **Several seeds, with the spread reported.**
 - **Result:** the strategy comparison table with paired confidence intervals, overall and by sub-period.
 
-### M5: Robustness (3-4 days)
+### M5: Robustness (3-4 days) *(done)*
+Delivered: `run.py robustness`, `trades.run_all(vol_col=, entries=)`, `strategies.every`/`implied_delta`, results in `results/robustness_*`. Baseline premium survives 13/17 settings; all 4 failures are VIX ≤ 0.85 (ATM vol measured at 0.84 × VIX in M3), so ATM straddles at realistic prices capture little of the premium. Skew-adjusted delta survives 11/13 out-of-sample stresses on the pre-declared std rule; the placebo hurts (std +0.76, p < 0.001); it fails for 93-day options (β from 30-day VIX over-corrects) and narrowly for 5-day rebalancing. VRP timing (stretch) not done. Remaining caveat: stresses reuse the 2015-2025 trades the strategy was proposed on; 2026+ data is the clean test.
+
 - Implied-vol proxy scaling: VIX × {0.80, 0.85, 0.9, 0.95, 1.0} (M3 measured 0.84 on one day).
 - Costs: stock {0, 2, 5, 10} bp per side, and option entry {0, 1, 3}% of premium.
 - Rebalancing every 1, 2 or 5 days, or by band.
 - Maturity: 9, 30 and 93 days.
 - Overlapping daily-start trades.
+- **Skew-adjusted delta (from M4) must face every row of this sweep**, plus β re-estimated on different windows and a placebo (β of the wrong sign), before it is reported as a finding rather than exploratory.
 - **Stretch: VRP timing.** Sell only when VIX² exceeds the 30-day variance forecast by a margin, with the threshold chosen on training years only.
 - **Result:** a single sensitivity table showing which conclusions survive every variation.
 

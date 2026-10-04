@@ -1,7 +1,18 @@
 import numpy as np
 import pytest
 
-from hedgelab.stats import mean_ci, newey_west_se, paired_diff, sharpe_ci, stationary_indices
+from hedgelab.stats import cvar, mean_ci, newey_west_se, paired_diff, paired_stat, sharpe_ci, stationary_indices
+
+
+def test_cvar_is_mean_of_worst_tail_as_loss():
+    assert cvar(np.arange(100.0) - 50, 0.95) == pytest.approx(48.0)  # worst five: -50..-46
+
+
+def test_paired_stat_on_std():
+    rng = np.random.default_rng(5)
+    a = rng.normal(0, 1, 400)
+    est, lo, hi, p = paired_stat(2 * a, a, lambda x: x.std(axis=-1, ddof=1))
+    assert est == pytest.approx(a.std(ddof=1)) and lo > 0 and p < 0.01
 
 
 def ar1(n, phi, seed=0):

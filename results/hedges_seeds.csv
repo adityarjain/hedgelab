@@ -1,0 +1,7 @@
+strategy,seed,mean,std,cvar95,worst,win_rate,sharpe
+deep hedge (Heston-trained),0,0.533072,1.19901,2.30838,-6.54217,0.742424,1.54011
+deep hedge (Heston-trained),1,0.538005,1.22265,2.37295,-7.10485,0.765152,1.52432
+deep hedge (Heston-trained),2,0.550931,1.21899,2.33987,-7.11545,0.757576,1.56562
+deep hedge (history-trained),0,0.926086,1.5688,1.97568,-6.26628,0.856061,2.04491
+deep hedge (history-trained),1,0.776389,1.60179,3.34542,-7.09901,0.833333,1.67906
+deep hedge (history-trained),2,0.732388,1.31968,2.4565,-9.1606,0.848485,1.92249

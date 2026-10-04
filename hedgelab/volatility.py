@@ -118,6 +118,36 @@ def walk_forward(f, first=1000, step=63, seeds=3, mlp_iter=300):
     return out
 
 
+def har_monthly(df, dates, horizon_days=30):
+    """Walk-forward forecast, made at the close of each date in `dates`, of annualised close-to-close variance
+    over the next `horizon_days` calendar days (one trade's life). Units: decimal variance per calendar year,
+    the same convention as VIX. Features at session t: realised variance over the last 1, 5 and 22 sessions,
+    and VIX^2. At each forecast date the OLS is refit on rows whose target window had already closed.
+    Returns forecast *vol* (sqrt), a Series indexed by `dates`."""
+    r2 = np.log(df.close).diff().pow(2).fillna(0).to_numpy()
+    day = (df.index - df.index[0]).days.to_numpy().astype(float)
+    gap = np.r_[1.0, np.diff(day)]
+    cum_r2, cum_days = np.cumsum(r2), np.cumsum(gap)
+
+    def realised(lo, hi):  # annualised variance over sessions lo+1..hi (index positions)
+        return (cum_r2[hi] - cum_r2[lo]) / np.maximum((cum_days[hi] - cum_days[lo]) / 365, 1e-12)
+
+    i = np.arange(len(df))
+    X = np.column_stack([np.ones(len(df)), realised(np.maximum(i - 1, 0), i), realised(np.maximum(i - 5, 0), i),
+                         realised(np.maximum(i - 22, 0), i), (df.vix.to_numpy() / 100) ** 2])
+    end = np.searchsorted(day, day + horizon_days, side="right") - 1  # last session inside each target window
+    y = realised(i, end)
+    known_on = day[end]  # the date each row's target becomes known
+    valid = (i >= 22) & (end > i) & (day[end] - day >= horizon_days - 4)
+    out = {}
+    for d in dates:
+        t = df.index.get_loc(d)
+        train = valid & (known_on <= day[t])
+        beta = np.linalg.lstsq(X[train], y[train], rcond=None)[0]
+        out[d] = np.sqrt(max(X[t] @ beta, y[train].min()))
+    return pd.Series(out)
+
+
 def evaluate(f, preds, base="har"):
     """Table of out-of-sample QLIKE / RMSE plus Diebold-Mariano (on QLIKE) of each model vs `base`."""
     m = preds.notna().all(axis=1)

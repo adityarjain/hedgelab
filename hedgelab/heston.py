@@ -63,7 +63,8 @@ def smile(S, K, T, r, q, params, call=True):
 
 # ---------- simulation ----------
 def simulate(n, steps, T, S0, r, q, v0, kappa, theta, xi, rho, seed=0):
-    """Andersen (2008) QE scheme for v, his central discretisation for ln S. Returns S, v, each (n, steps+1)."""
+    """Andersen (2008) QE scheme for v, his central discretisation for ln S. Returns S, v, each (n, steps+1).
+    v0 may be a scalar or one starting variance per path."""
     rng = np.random.default_rng(seed)
     dt = T / steps
     e = np.exp(-kappa * dt)
@@ -71,7 +72,7 @@ def simulate(n, steps, T, S0, r, q, v0, kappa, theta, xi, rho, seed=0):
     k1 = 0.5 * dt * (kappa * rho / xi - 0.5) - rho / xi
     k2 = 0.5 * dt * (kappa * rho / xi - 0.5) + rho / xi
     k3 = k4 = 0.5 * dt * (1 - rho**2)
-    lnS, v = np.full(n, np.log(S0)), np.full(n, float(v0))
+    lnS, v = np.full(n, np.log(S0)), np.broadcast_to(np.asarray(v0, float), (n,)).copy()
     S_out, v_out = [np.exp(lnS)], [v]
     for _ in range(steps):
         m = theta + (v - theta) * e

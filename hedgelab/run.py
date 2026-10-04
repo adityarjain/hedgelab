@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from hedgelab import data, heston, stats, trades
+from hedgelab import data, heston, stats, strategies, trades, volatility
 
 RESULTS = Path(__file__).resolve().parent.parent / "results"
 PERIODS = {"2008-09 financial crisis": ("2008-09-01", "2009-06-30"), "2020 Covid crash": ("2020-02-01", "2020-06-30"),
@@ -190,5 +190,200 @@ def plot_smiles(quotes, S, path, rmse):
     fig.savefig(path, dpi=150, facecolor=fig.get_facecolor())
 
 
+TEST_START = "2015-01-01"  # everything tuned or trained uses data before this; results are reported after it
+COST = 2e-4
+WW_GRID = [0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0]
+SEEDS = (0, 1, 2)
+
+
+def _metrics(p):
+    return {"mean": p.mean(), "std": p.std(ddof=1), "cvar95": stats.cvar(p), "worst": p.min(),
+            "win_rate": (p > 0).mean(), "sharpe": p.mean() / p.std(ddof=1) * np.sqrt(12)}
+
+
+def hedges():
+    df = data.load()
+    base = trades.run_all(df)
+    entries = base.entry.tolist()
+    tune = (base.settle < TEST_START).to_numpy()
+
+    # strategy 3: walk-forward 30-day vol forecast at each entry
+    forecast = volatility.har_monthly(df, entries)
+    # strategy 5: band risk aversion chosen on training trades only, by CVaR95
+    ww_cvar = {g: stats.cvar(per_100(trades.run_all(df, hedge=strategies.whalley_wilmott(COST, g)))[tune].to_numpy())
+               for g in WW_GRID}
+    ww_g = min(ww_cvar, key=ww_cvar.get)
+    # strategy 6a: Heston calibrated on 2008-2014 only (VIX9D starts 2011, so three tenors)
+    lv = df.loc["2008":"2014", ["vix", "vix3m", "vix6m"]].dropna()
+    ts = heston.fit_term_structure(lv.to_numpy(), np.array([30, 93, 183]) / 365)
+    rho, xi = heston.fit_rho_xi(df.close.loc[lv.index].to_numpy(), ts["v"], (lv.index - lv.index[0]).days.to_numpy())
+    h_params = (ts["kappa"], ts["theta"], xi, rho)
+    sim = strategies.heston_paths(200_000, h_params, np.maximum(ts["v"], 1e-4), seed=10)
+    hist = strategies.history_windows(df, TEST_START)  # strategy 6b
+    beta = strategies.vix_beta(df, TEST_START)  # exploratory strategy, training years only
+    deep = {"deep hedge (Heston-trained)": [strategies.train_deep(sim, COST, seed=s) for s in SEEDS],
+            "deep hedge (history-trained)": [strategies.train_deep(hist, COST, seed=s) for s in SEEDS]}
+
+    policies = {"no hedge": (False, None), "BS delta (implied vol)": (True, None),
+                "BS delta (forecast vol)": (strategies.forecast_delta, {"forecast_vol": forecast}),
+                "Leland": (strategies.leland(COST), None),
+                "Whalley-Wilmott band": (strategies.whalley_wilmott(COST, ww_g), None),
+                **{k: (strategies.deep_policy(m), None) for k, m in deep.items()},
+                # exploratory, added after the first results to explain the deep hedges (not pre-declared)
+                "skew-adjusted delta (exploratory)": (strategies.skew_delta(beta), None)}
+    runs = {k: trades.run_all(df, hedge=h, ctx=c) for k, (h, c) in policies.items()}
+    test = (base.entry >= TEST_START).to_numpy()
+    pnl = {k: per_100(t).to_numpy() for k, t in runs.items()}
+    ref = pnl["BS delta (implied vol)"][test]
+
+    summary, paired = [], []
+    for k, p in pnl.items():
+        cost_paid = (runs[k].stock_cost / runs[k].S0 * 100).to_numpy()
+        summary.append({"strategy": k, "period": "2015-2025 (test)", "trades": int(test.sum()), **_metrics(p[test]),
+                        "stock_cost": cost_paid[test].mean()})
+        if not k.startswith("deep"):  # nothing learned, so the full history is fair too
+            summary.append({"strategy": k, "period": "2005-2025 (full)", "trades": len(p), **_metrics(p),
+                            "stock_cost": cost_paid.mean()})
+        if k != "BS delta (implied vol)":
+            for name, f in [("mean", lambda x: x.mean(axis=-1)), ("std", lambda x: x.std(axis=-1, ddof=1)),
+                            ("cvar95", stats.cvar)]:
+                d, lo, hi, pv = stats.paired_stat(p[test], ref, f)
+                paired.append({"strategy": k, "metric": name, "diff_vs_bs_delta": d, "lo": lo, "hi": hi, "p": pv})
+    seeds = [{"strategy": k, "seed": s, **_metrics(per_100(trades.run_all(df, hedge=strategies.deep_policy([m])))
+                                                      .to_numpy()[test])}
+             for k, models in deep.items() for s, m in zip(SEEDS, models, strict=True)]
+    fc_rv, fc_iv, fc_f = base.realized_vol.to_numpy() ** 2, base.sigma.to_numpy() ** 2, forecast.to_numpy() ** 2
+    qlike = lambda f, y: float(np.mean(y / f - np.log(y / f) - 1))  # noqa: E731
+    spy_move = (df.close.reindex(base.settle).to_numpy() / base.S0.to_numpy() - 1)[test] * 100
+    direction = []
+    for k, p in pnl.items():
+        if k in ("BS delta (implied vol)", "no hedge"):
+            continue
+        d = p[test] - ref
+        direction.append({"strategy": k, "corr_with_spy_move": np.corrcoef(spy_move, d)[0, 1],
+                          "mean_diff_spy_up": d[spy_move > 0].mean(), "mean_diff_spy_down": d[spy_move < 0].mean(),
+                          "share_spy_up": (spy_move > 0).mean()})
+    pd.DataFrame(direction).to_csv(RESULTS / "hedges_direction.csv", index=False, float_format="%.6g")
+    setup = {"test_start": TEST_START, "stock_cost_per_side": COST, "ww_risk_aversion": ww_g, "vix_beta": beta,
+             **{f"ww_train_cvar95_g{g}": v for g, v in ww_cvar.items()},
+             "heston_train_kappa": h_params[0], "heston_train_theta": h_params[1], "heston_train_xi": xi,
+             "heston_train_rho": rho, "history_windows": int(hist["S"].shape[0]),
+             "forecast_qlike_test": qlike(fc_f[test], fc_rv[test]), "vix_qlike_test": qlike(fc_iv[test], fc_rv[test])}
+
+    pd.DataFrame(summary).to_csv(RESULTS / "hedges_summary.csv", index=False, float_format="%.6g")
+    pd.DataFrame(paired).to_csv(RESULTS / "hedges_paired.csv", index=False, float_format="%.6g")
+    pd.DataFrame(seeds).to_csv(RESULTS / "hedges_seeds.csv", index=False, float_format="%.6g")
+    pd.Series(setup).rename("value").to_csv(RESULTS / "hedges_setup.csv", index_label="parameter")
+    pd.DataFrame({"entry": base.entry, **pnl}).to_csv(RESULTS / "hedges_trades.csv", index=False, float_format="%.6g")
+    plot_paired(pd.DataFrame(paired), RESULTS / "hedges_comparison.png")
+    print(pd.DataFrame(summary).round(3).to_string(index=False))
+    print(pd.DataFrame(paired).round(4).to_string(index=False))
+    print(pd.DataFrame(seeds).round(3).to_string(index=False))
+    print(pd.Series(setup).to_string())
+
+
+def robustness():
+    df = data.load()
+    St = strategies
+
+    # A) the baseline trade itself (BS delta, 2005-2025): does the premium survive pessimistic assumptions?
+    base_settings = [
+        ("default: VIX x1.00, 2bp, daily hedge, 30d, monthly", {}),
+        *[(f"VIX x{s:.2f}", {"vix_scale": s}) for s in (0.80, 0.85, 0.90, 0.95)],
+        *[(f"stock cost {c}bp", {"cost": c * 1e-4}) for c in (0, 5, 10)],
+        *[(f"option entry cost {e:.0%} of premium", {"entry_cost": e}) for e in (0.01, 0.03)],
+        ("pessimistic: VIX x0.85, 5bp, 1% entry", {"vix_scale": 0.85, "cost": 5e-4, "entry_cost": 0.01}),
+        ("very pessimistic: VIX x0.80, 10bp, 3% entry", {"vix_scale": 0.80, "cost": 1e-3, "entry_cost": 0.03}),
+        *[(f"rebalance every {k} days", {"hedge": St.every(k, St.implied_delta)}) for k in (2, 5)],
+        ("9-day options at VIX9D (2011+)", {"days": 9, "vol_col": "vix9d"}),
+        ("93-day options at VIX3M (2006+, overlapping)", {"days": 93, "vol_col": "vix3m"}),
+        ("30-day, a new trade every day (overlapping)", {"entries": "daily"}),
+    ]
+    base_rows = []
+    for name, kw in base_settings:
+        t = trades.run_all(df, **kw)
+        p = per_100(t).to_numpy()
+        overlap = kw.get("entries") == "daily" or kw.get("days", 30) > 31
+        mean, lo, hi = stats.mean_ci(p, block=30 if kw.get("entries") == "daily" else None)
+        sharpe = stats.sharpe_ci(p) if not overlap else (np.nan, np.nan, np.nan)
+        base_rows.append({"setting": name, "trades": len(p), "first_entry": t.entry.min().date(),
+                          "mean_per_100": mean, "mean_lo": lo, "mean_hi": hi, "sharpe": sharpe[0],
+                          "sharpe_lo": sharpe[1], "sharpe_hi": sharpe[2], "win_rate": (p > 0).mean(),
+                          "worst": p.min(), "premium_survives": lo > 0})
+    base_df = pd.DataFrame(base_rows)
+    base_df.to_csv(RESULTS / "robustness_baseline.csv", index=False, float_format="%.6g")
+    print(base_df.round(3).to_string(index=False))
+
+    # B) skew-adjusted vs BS delta on 2015-2025 trades. Pre-declared: survives a setting if the paired std
+    #    difference has a 95% interval entirely below zero; the wrong-sign placebo must not.
+    beta = St.vix_beta(df, TEST_START)
+    betas = {"beta from 2005-2009": St.vix_beta(df.loc["2005":], "2010-01-01"),
+             "beta from 2010-2014": St.vix_beta(df.loc["2010":], TEST_START),
+             "beta from 2005-2025 (in-sample, for reference)": St.vix_beta(df.loc["2005":], "2026-01-01")}
+    skew_settings = [
+        ("default (M4)", {}, beta, 1),
+        *[(f"VIX x{s:.2f}", {"vix_scale": s}, beta, 1) for s in (0.80, 0.85)],
+        *[(f"stock cost {c}bp", {"cost": c * 1e-4}, beta, 1) for c in (0, 5, 10)],
+        *[(f"rebalance every {k} days", {}, beta, k) for k in (2, 5)],
+        ("9-day options at VIX9D", {"days": 9, "vol_col": "vix9d"}, beta, 1),
+        ("93-day options at VIX3M", {"days": 93, "vol_col": "vix3m"}, beta, 1),
+        ("30-day, a new trade every day", {"entries": "daily"}, beta, 1),
+        *[(name, {}, b, 1) for name, b in betas.items()],
+        ("PLACEBO: beta with the wrong sign", {}, -beta, 1),
+    ]
+    skew_rows = []
+    for name, kw, b, k in skew_settings:
+        ref = trades.run_all(df, hedge=St.every(k, St.implied_delta) if k > 1 else True, **kw)
+        alt = trades.run_all(df, hedge=St.every(k, St.skew_delta(b)), **kw)
+        test = (ref.entry >= TEST_START).to_numpy()
+        a, r = per_100(alt).to_numpy()[test], per_100(ref).to_numpy()[test]
+        block = 30 if kw.get("entries") == "daily" else None
+        for metric, f in [("mean", lambda x: x.mean(axis=-1)), ("std", lambda x: x.std(axis=-1, ddof=1)),
+                          ("cvar95", stats.cvar)]:
+            d, lo, hi, pv = stats.paired_stat(a, r, f, block=block)
+            skew_rows.append({"strategy": name, "metric": metric, "beta": b, "trades": int(test.sum()),
+                              "diff_vs_bs_delta": d, "lo": lo, "hi": hi, "p": pv})
+    skew_df = pd.DataFrame(skew_rows)
+    std_rows = skew_df[skew_df.metric == "std"]
+    skew_df["survives"] = skew_df.strategy.map(dict(zip(std_rows.strategy, std_rows.hi < 0, strict=True)))
+    skew_df.to_csv(RESULTS / "robustness_skew.csv", index=False, float_format="%.6g")
+    plot_paired(skew_df, RESULTS / "robustness_skew.png",
+                title="Skew-adjusted delta vs BS delta under stress, 2015-2025 trades (95% paired bootstrap CI)")
+    print(skew_df.round(4).to_string(index=False))
+
+
+def plot_paired(paired, path, title="Hedging strategies vs Black-Scholes delta, same 2015-2025 trades "
+                                    "(95% paired bootstrap CI)"):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    names = [s for s in paired.strategy.unique() if s != "no hedge"]
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), sharey=True, facecolor="#fcfcfb")
+    titles = {"mean": "Mean P&L (higher is better)", "std": "Std of P&L (lower is better)",
+              "cvar95": "CVaR95 loss (lower is better)"}
+    for ax, metric in zip(axes, titles, strict=True):
+        m = paired[(paired.metric == metric) & paired.strategy.isin(names)].set_index("strategy").loc[names]
+        y = np.arange(len(names))[::-1]
+        ax.set_facecolor("#fcfcfb")
+        ax.spines[["top", "right", "left"]].set_visible(False)
+        ax.spines["bottom"].set_color(GRID)
+        ax.tick_params(colors=MUTED, labelsize=9, length=0)
+        ax.axvline(0, color=MUTED, lw=0.8)
+        ax.grid(axis="x", color=GRID, lw=0.8)
+        ax.set_axisbelow(True)
+        ax.hlines(y, m.lo, m.hi, color=BLUE, lw=2)
+        ax.scatter(m.diff_vs_bs_delta, y, s=40, color=BLUE, edgecolor="#fcfcfb", lw=1, zorder=3)
+        ax.set_title(titles[metric], loc="left", color=INK, fontsize=10)
+        ax.set_xlabel("difference vs BS delta, per $100 / month", color=MUTED, fontsize=8)
+        ax.xaxis.set_major_locator(plt.MaxNLocator(5))  # keeps tick labels from colliding
+    axes[0].set_yticks(np.arange(len(names))[::-1], names, color=INK, fontsize=9)
+    fig.suptitle(title, x=0.01, ha="left", color=INK, fontsize=11)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, facecolor=fig.get_facecolor())
+
+
 if __name__ == "__main__":
-    {"baseline": baseline, "heston": heston_results}[sys.argv[1] if len(sys.argv) > 1 else "baseline"]()
+    commands = {"baseline": baseline, "heston": heston_results, "hedges": hedges, "robustness": robustness}
+    commands[sys.argv[1] if len(sys.argv) > 1 else "baseline"]()
