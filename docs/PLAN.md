@@ -145,7 +145,9 @@ Delivered: `run.py robustness`, `trades.run_all(vol_col=, entries=)`, `strategie
 - **Stretch: VRP timing.** Sell only when VIX² exceeds the 30-day variance forecast by a margin, with the threshold chosen on training years only.
 - **Result:** a single sensitivity table showing which conclusions survive every variation.
 
-### M6: Write-up and polish (3-4 days)
+### M6: Write-up and polish (3-4 days) *(done)*
+Delivered: `python -m hedgelab.run all`, `trades.mark_to_market` (daily marks at that day's VIX; sums exactly to trade totals, tested), `results/drawdowns.*`, `docs/report.md`, interview prep (kept local, not in the repo), the README rebuilt around the three findings, and CLAUDE.md updated. A full rebuild reproduced the committed results (baseline and hedges byte-identical; Heston chain fit equal at reported precision). Daily marks: BS-delta max drawdown −10.4 vs a −6.07 worst month; skew-adjusted −8.9, though worse than BS delta in August 2024.
+
 - `python -m hedgelab.run all` regenerates every table and figure into `results/`, and README numbers are copied from those files.
 - `docs/report.md`: a 6-8 page research note covering question, data, method, results, limitations, and what would change with real option data.
 - README: headline result first, then one chart and one table, then how to reproduce.
@@ -180,11 +182,11 @@ docs/             PLAN.md, report.md
 
 ## Definition of done
 
-- [ ] `pip install -e .` then `python -m hedgelab.run all` reproduces every result from scratch.
-- [ ] CI is green, and the slow tests pass locally.
-- [ ] The README headline has a number with a confidence interval, and every README number is in `results/`.
-- [ ] The limitations section is honest: no historical option quotes, the VIX proxy, a single underlying.
-- [ ] You can explain every formula in the report without notes.
+- [x] `pip install -e .` then `python -m hedgelab.run all` reproduces every result from scratch.
+- [ ] CI is green (check the GitHub Actions tab after pushing), and the slow tests pass locally.
+- [x] The README headline has a number with a confidence interval, and every README number is in `results/`.
+- [x] The limitations section is honest: no historical option quotes, the VIX proxy, a single underlying.
+- [ ] You can explain every formula in the report without notes. (That's yours: practise with the local interview notes.)
 
 ## Resume bullets (fill in the real numbers at the end)
 

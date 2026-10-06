@@ -352,6 +352,61 @@ def robustness():
     print(skew_df.round(4).to_string(index=False))
 
 
+def drawdowns():
+    """Daily mark-to-market (each open straddle at that day's VIX) -> drawdowns the month-end view hides."""
+    df = data.load()
+    beta = strategies.vix_beta(df, TEST_START)
+    series = {("BS delta", "2015-2025 (test)"): trades.mark_to_market(df, start=TEST_START),
+              ("skew-adjusted delta", "2015-2025 (test)"): trades.mark_to_market(
+                  df, hedge=strategies.skew_delta(beta), start=TEST_START),
+              ("BS delta", "2005-2025 (full)"): trades.mark_to_market(df)}
+    rows = []
+    for (name, period), daily in series.items():
+        cum = daily.cumsum()
+        under = cum - cum.cummax()
+        rows.append({"strategy": name, "period": period, "days": len(daily), "total_per_100": cum.iloc[-1],
+                     "max_drawdown": under.min(), "trough": under.idxmin().date(), "worst_day": daily.min(),
+                     "worst_day_date": daily.idxmin().date(), "worst_5_days": daily.rolling(5).sum().min(),
+                     "daily_std": daily.std()})
+    out = pd.DataFrame(rows)
+    out.to_csv(RESULTS / "drawdowns.csv", index=False, float_format="%.6g")
+    print(out.round(3).to_string(index=False))
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(10, 6), height_ratios=[3, 2], sharex=True, facecolor="#fcfcfb")
+    for ax in (a1, a2):
+        ax.set_facecolor("#fcfcfb")
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.spines[["left", "bottom"]].set_color(GRID)
+        ax.tick_params(colors=MUTED, labelsize=9)
+        ax.grid(axis="y", color=GRID, lw=0.8)
+        ax.set_axisbelow(True)
+    for (name, period), color in [(("BS delta", "2015-2025 (test)"), BLUE),
+                                  (("skew-adjusted delta", "2015-2025 (test)"), ORANGE)]:
+        cum = series[(name, period)].cumsum()
+        a1.plot(cum.index, cum, color=color, lw=2, label=name)
+        a2.plot(cum.index, cum - cum.cummax(), color=color, lw=1.5, label=name)
+    a1.set_ylabel("cumulative P&L per $100", color=MUTED, fontsize=9)
+    a1.set_title("Daily mark-to-market of the monthly short straddle, 2015-2025 (out of sample)", loc="left",
+                 color=INK, fontsize=12)
+    a1.legend(frameon=False, fontsize=9)
+    a2.set_ylabel("drawdown from peak", color=MUTED, fontsize=9)
+    a2.set_title("Underwater curve: each straddle marked at that day's VIX", loc="left", color=INK, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(RESULTS / "drawdowns.png", dpi=150, facecolor=fig.get_facecolor())
+
+
+def all_results():
+    """Regenerate everything in results/ (~6 minutes; downloads data on the first run)."""
+    for step in (baseline, heston_results, hedges, robustness, drawdowns):
+        print(f"\n===== {step.__name__} =====")
+        step()
+
+
 def plot_paired(paired, path, title="Hedging strategies vs Black-Scholes delta, same 2015-2025 trades "
                                     "(95% paired bootstrap CI)"):
     import matplotlib
@@ -385,5 +440,6 @@ def plot_paired(paired, path, title="Hedging strategies vs Black-Scholes delta, 
 
 
 if __name__ == "__main__":
-    commands = {"baseline": baseline, "heston": heston_results, "hedges": hedges, "robustness": robustness}
+    commands = {"baseline": baseline, "heston": heston_results, "hedges": hedges, "robustness": robustness,
+                "drawdowns": drawdowns, "all": all_results}
     commands[sys.argv[1] if len(sys.argv) > 1 else "baseline"]()

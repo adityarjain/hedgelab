@@ -2,7 +2,27 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hedgelab.trades import run_all, run_trade, straddle
+from hedgelab.trades import mark_to_market, run_all, run_trade, straddle
+
+
+def test_daily_marks_add_up_to_trade_totals():
+    df = gbm_frame(years=3)
+    df["vix"] = 20 + 5 * np.sin(np.arange(len(df)) / 40)  # marks move with VIX, entry pricing too
+    t = run_all(df, cost=3e-4, entry_cost=0.02, start="2000-01-01")
+    marks = mark_to_market(df, cost=3e-4, entry_cost=0.02, start="2000-01-01")
+    assert marks.sum() == pytest.approx(per_100(t).sum(), abs=1e-9)
+    assert marks.index.is_monotonic_increasing and marks.index.isin(df.index).all()
+
+
+def test_daily_marks_ignore_the_future():
+    df = gbm_frame(years=3)
+    k = df.index[400]
+    df2 = df.copy()
+    after = df2.index > k
+    df2.loc[after, "close"] *= np.random.default_rng(7).uniform(0.7, 1.3, after.sum())
+    df2.loc[after, "vix"] = 45.0
+    a, b = mark_to_market(df, start="2000-01-01"), mark_to_market(df2, start="2000-01-01")
+    pd.testing.assert_series_equal(a.loc[:k], b.loc[:k])
 
 
 def gbm_frame(years=40, sigma=0.2, vix=20.0, seed=0):

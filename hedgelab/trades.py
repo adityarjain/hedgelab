@@ -84,6 +84,40 @@ def run_trade(days, S, div, sigma, r, q, cost=0.0, entry_cost=0.0, hedge=True, v
             "holdings": h}  # per-session hedge; dropped by run_all, used by the lookahead test
 
 
+def mark_to_market(df, days=30, vix_scale=1.0, cost=2e-4, entry_cost=0.0, hedge=True, start="2005-01-01", ctx=None):
+    """Daily P&L of the monthly strategy, every open trade marked at each close: the straddle at Black-Scholes
+    with that day's VIX (x vix_scale), the hedge at the close, cash with interest and dividends, and costs on the
+    day they are paid. Per trade, the daily P&L sums exactly to run_all's total (no interest on costs, as there).
+    Returns a Series: date -> P&L per $100 of entry notional, summed over the trades open that day."""
+    q_all = dividend_yield(df)
+    day_num = (df.index - df.index[0]).days.to_numpy()
+    pieces = []
+    for t0 in entry_dates(df.index, start):
+        window = df.loc[t0 : t0 + pd.Timedelta(days=days)]
+        if window.index[-1] - t0 < pd.Timedelta(days=days - 4):
+            continue
+        i0 = df.index.get_loc(t0)
+        sl = slice(i0, i0 + len(window))
+        dd, S, div = day_num[sl].astype(float), window.close.to_numpy(), window.dividend.to_numpy()
+        vix = window.vix.to_numpy()
+        sigma, r, q = vix[0] / 100 * vix_scale, df.rate.iloc[i0], q_all.iloc[i0]
+        res = run_trade(dd, S, div, sigma, r, q, cost, entry_cost, hedge, vix=vix,
+                        ctx={k: s.loc[t0] for k, s in (ctx or {}).items()})
+        h, n, K = res["holdings"], len(S) - 1, S[0]
+        tau, dt = (dd[-1] - dd[:-1]) / 365, np.diff(dd) / 365
+        value = straddle(S[:-1], K, tau, r, q, vix[:-1] / 100 * vix_scale)[0]  # marked at each day's VIX
+        book, cash, prev, spent = np.empty(n + 1), res["premium"] * (1 - entry_cost), 0.0, 0.0
+        for t in range(n):
+            cash -= (h[t] - prev) * S[t]
+            spent += cost * abs(h[t] - prev) * S[t]
+            book[t] = cash + h[t] * S[t] - value[t] - spent
+            cash = cash * np.exp(r * dt[t]) + h[t] * div[t + 1]
+            prev = h[t]
+        book[n] = cash + prev * S[n] - abs(S[n] - K) - spent - cost * abs(prev) * S[n]
+        pieces.append(pd.Series(np.diff(book, prepend=0.0) / K * 100, index=window.index))
+    return pd.concat(pieces).groupby(level=0).sum()
+
+
 def run_all(df, days=30, vix_scale=1.0, cost=2e-4, entry_cost=0.0, hedge=True, start="2005-01-01", ctx=None,
             vol_col="vix", entries="monthly"):
     """One trade per month (entries="monthly") or one starting every session ("daily", overlapping).
