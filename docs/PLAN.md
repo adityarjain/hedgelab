@@ -2,7 +2,7 @@
 
 ## Context
 
-You asked for one flagship finance project with real resume weight, not several small ones. The four prototypes (pricer, backtester, vol forecaster, deep hedging) are already merged into `~/Documents/PROJECTS/hedgelab` (27 tests passing). This plan turns that package into one research project with one question and one headline result. **First step on approval: save this plan into the repo as `docs/PLAN.md`.**
+Goal: one flagship research project rather than several small ones. The four prototypes (pricer, backtester, vol forecaster, deep hedging) are already merged into `~/Documents/PROJECTS/hedgelab` (27 tests passing). This plan turns that package into one research project with one question and one headline result.
 
 ## The question
 
@@ -10,12 +10,6 @@ You asked for one flagship finance project with real resume weight, not several 
 > where does it come from, and can better volatility forecasts or smarter (cost-aware or learned) hedging keep more of it?**
 
 This is a well-studied effect, the **variance risk premium**: option-implied volatility is usually higher than the volatility that actually follows (Carr & Wu 2009; Bakshi & Kapadia 2003). Option sellers earn that gap on average and lose badly in crashes. The project measures it on 20+ years of real data, decomposes it, and tests whether hedging choices change the outcome after costs.
-
-Why this carries weight on a resume:
-- **One question, one headline number,** with a confidence interval, not a pile of demos.
-- **It touches every core quant skill:** pricing (Black-Scholes, Heston), volatility modelling, hedging, backtesting, statistics, and ML. Each one is there because the question needs it.
-- **It's real data,** with honest controls: no lookahead, transaction costs, crisis periods, and robustness checks.
-- **It reproduces with one command,** and every number in the README traces to a generated results file.
 
 ---
 
@@ -146,12 +140,11 @@ Delivered: `run.py robustness`, `trades.run_all(vol_col=, entries=)`, `strategie
 - **Result:** a single sensitivity table showing which conclusions survive every variation.
 
 ### M6: Write-up and polish (3-4 days) *(done)*
-Delivered: `python -m hedgelab.run all`, `trades.mark_to_market` (daily marks at that day's VIX; sums exactly to trade totals, tested), `results/drawdowns.*`, `docs/report.md`, interview prep (kept local, not in the repo), the README rebuilt around the three findings, and CLAUDE.md updated. A full rebuild reproduced the committed results (baseline and hedges byte-identical; Heston chain fit equal at reported precision). Daily marks: BS-delta max drawdown −10.4 vs a −6.07 worst month; skew-adjusted −8.9, though worse than BS delta in August 2024.
+Delivered: `python -m hedgelab.run all`, `trades.mark_to_market` (daily marks at that day's VIX; sums exactly to trade totals, tested), `results/drawdowns.*`, `docs/report.md`, the README rebuilt around the three findings, and CLAUDE.md updated. A full rebuild reproduced the committed results (baseline and hedges byte-identical; Heston chain fit equal at reported precision). Daily marks: BS-delta max drawdown −10.4 vs a −6.07 worst month; skew-adjusted −8.9, though worse than BS delta in August 2024.
 
 - `python -m hedgelab.run all` regenerates every table and figure into `results/`, and README numbers are copied from those files.
 - `docs/report.md`: a 6-8 page research note covering question, data, method, results, limitations, and what would change with real option data.
 - README: headline result first, then one chart and one table, then how to reproduce.
-- Resume bullets and a 5-minute interview walkthrough (see below).
 
 ---
 
@@ -186,21 +179,7 @@ docs/             PLAN.md, report.md
 - [ ] CI is green (check the GitHub Actions tab after pushing), and the slow tests pass locally.
 - [x] The README headline has a number with a confidence interval, and every README number is in `results/`.
 - [x] The limitations section is honest: no historical option quotes, the VIX proxy, a single underlying.
-- [ ] You can explain every formula in the report without notes. (That's yours: practise with the local interview notes.)
-
-## Resume bullets (fill in the real numbers at the end)
-
-- Built **hedgelab**, an options-hedging research platform in Python. On 21 years of SPY data, it measured the variance risk premium from systematically selling delta-hedged 30-day straddles (**X% annualized, Sharpe Y, 95% CI [a, b]**) and decomposed P&L into the volatility premium, hedging error and costs.
-- Implemented Heston stochastic volatility (Fourier pricing, QE Monte Carlo, calibration to the VIX term structure), and compared six hedging strategies, including a cost-aware no-trade band and a CVaR-trained neural hedger, cutting **tail loss by Z%** after costs versus Black-Scholes delta.
-
-## Interview questions this prepares you for
-
-- Why does a delta-hedged short option make money on average, and when does it blow up?
-- Why hedge at implied vs realized vol, and what changes?
-- What's wrong with using VIX as the option's implied vol?
-- How do you know there's no lookahead, and how did you test it?
-- Why did the neural hedge win or lose on real data when it was trained on simulations?
-- How confident are you in the headline number, and what's the confidence interval?
+- [ ] You can explain every formula in the report without notes.
 
 ## Risks
 
